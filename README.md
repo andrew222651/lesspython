@@ -1,6 +1,8 @@
 # lesspython
 
-Find duplicated Python code fragments by hashing normalized AST subtrees.
+Find duplicated Python code fragments by hashing normalized AST subtrees. This
+means it can spot duplicates even when variable names or literals change, rather
+than just matching identical lines of text.
 
 ## Usage
 
@@ -54,4 +56,3 @@ Run tests:
 ```bash
 python -m unittest discover -s tests
 ```
-
