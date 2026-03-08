@@ -9,8 +9,8 @@ from lesspython.report import format_yaml_report
 app = typer.Typer(add_completion=False)
 
 
-@app.command()
-def scan(
+@app.callback(invoke_without_command=True)
+def main(
     folder: Path = typer.Argument(
         ..., exists=True, file_okay=False, dir_okay=True
     ),

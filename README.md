@@ -2,28 +2,22 @@
 
 Find duplicated Python code fragments by hashing normalized AST subtrees.
 
-## Install
-
-```bash
-pip install -e .
-```
-
 ## Usage
 
 ```bash
-lesspython scan /path/to/project --min-lines 5
+lesspython /path/to/project --min-lines 5
 ```
 
 Normalize literals to ignore constant differences:
 
 ```bash
-lesspython scan /path/to/project --min-lines 5 --normalize-literals
+lesspython /path/to/project --min-lines 5 --normalize-literals
 ```
 
 Exclude paths (repeatable):
 
 ```bash
-lesspython scan /path/to/project -e .venv -e build -e tests
+lesspython /path/to/project -e .venv -e build -e tests
 ```
 
 ## Ignore blocks
@@ -50,6 +44,12 @@ The CLI prints YAML with these top-level keys:
 - `groups`: duplicate fragment groups with occurrences and spans
 
 ## Development
+
+## Install
+
+```bash
+pip install -e .[dev]
+```
 
 Run tests:
 
