@@ -3,9 +3,10 @@ import hashlib
 import io
 import re
 import tokenize
+from types import EllipsisType
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, TypeAlias, Union
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,18 @@ class Span:
 class ErrorEntry:
     path: Path
     message: str
+
+
+ConstantValue: TypeAlias = Union[
+    str,
+    bytes,
+    int,
+    float,
+    complex,
+    None,
+    bool,
+    EllipsisType,
+]
 
 
 @dataclass(frozen=True, order=True)
@@ -555,7 +568,7 @@ def collect_hashes(
     return by_hash
 
 
-def normalize_constant_value(value: object) -> object:
+def normalize_constant_value(value: ConstantValue) -> ConstantValue:
     if value is None or value is Ellipsis:
         return value
     if isinstance(value, bool):

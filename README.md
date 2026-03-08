@@ -45,14 +45,13 @@ The CLI prints YAML with these top-level keys:
 
 ## Development
 
-## Install
-
+Install:
 ```bash
 pip install -e .[dev]
 ```
 
 Run tests:
-
 ```bash
 python -m unittest discover -s tests
 ```
+
