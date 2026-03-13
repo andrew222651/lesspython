@@ -77,6 +77,47 @@ class TestDupFragments(unittest.TestCase):
         result = run_scan(folder, min_lines=3)
         self.assertGreater(result.groups_count, 0)
 
+    def test_expression_sequence_collapses_adjacent_duplicates(self) -> None:
+        folder = ROOT / "examples" / "arg_sequence"
+        report = scan_folder(folder, min_lines=4, normalize_literals=False)
+        self.assertEqual(len(report.groups), 1)
+        self.assertTrue(
+            all(
+                occ.node_type.startswith("ExprSequence")
+                for group in report.groups
+                for occ in group.occurrences
+            )
+        )
+
+    def test_sequence_includes_loop_summary_assignment(self) -> None:
+        folder = ROOT / "examples" / "loop_summary"
+        report = scan_folder(folder, min_lines=4, normalize_literals=False)
+        target_file = folder / "summary.py"
+        lines = target_file.read_text(encoding="utf-8").splitlines()
+        start_line = next(
+            i + 1 for i, line in enumerate(lines) if line.strip() == "data = [1, 2, 3]"
+        )
+        summary_line = next(
+            i + 1
+            for i, line in enumerate(lines)
+            if line.strip()
+            == "summary = [(name, count) for name, count in counts.items()]"
+        )
+        self.assertTrue(
+            any(
+                occ.path == target_file
+                and occ.lineno == start_line
+                and occ.end_lineno >= summary_line
+                for group in report.groups
+                for occ in group.occurrences
+            )
+        )
+
+    def test_sequence_rejects_swapped_cross_statement_usage(self) -> None:
+        folder = ROOT / "examples" / "hybrid_swap"
+        result = run_scan(folder, min_lines=4)
+        self.assertEqual(result.groups_count, 0)
+
     def test_attribute_names_not_normalized(self) -> None:
         folder = ROOT / "examples" / "attributes"
         result = run_scan(folder, min_lines=4)

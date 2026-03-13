@@ -94,9 +94,7 @@ class NodeInfo:
     hash_value: str
     line_count: int
     node_type: str
-    dump: str
-    name_tokens: List[str]
-    free_tokens: List[str]
+    var_tokens: frozenset[str]
 
 
 @dataclass
@@ -501,15 +499,13 @@ def build_node_cache(
         canonical_dump = canonicalize_dump(dump, fixed_tokens=set(free_tokens))
         h = hashlib.sha256(canonical_dump.encode("utf-8")).hexdigest()
         line_count = count_nonblank(nonblank_prefix, span.start, span.end)
-        name_tokens = extract_var_tokens(dump)
+        var_tokens = frozenset(extract_var_tokens(dump))
         cache[id(node)] = NodeInfo(
             span=span,
             hash_value=h,
             line_count=line_count,
             node_type=type(node).__name__,
-            dump=dump,
-            name_tokens=name_tokens,
-            free_tokens=free_tokens,
+            var_tokens=var_tokens,
         )
     return cache
 
@@ -547,23 +543,38 @@ def collect_hashes(
             value = getattr(node, field_name, None)
             if not isinstance(value, list):
                 continue
-            if not is_sequence_parent(node, field_name):
+            config = sequence_config(node, field_name)
+            if config is None:
                 continue
-            statements = [stmt for stmt in value if isinstance(stmt, ast.stmt)]
-            if not statements:
+            node_types, excluded_node_types, label = config
+            sequence_nodes = [
+                item for item in value if isinstance(item, node_types)
+            ]
+            if not sequence_nodes:
+                continue
+            nodes_with_span = [
+                item
+                for item in sequence_nodes
+                if hasattr(item, "lineno") and hasattr(item, "end_lineno")
+            ]
+            if not nodes_with_span:
                 continue
             list_span = Span(
-                start=min(stmt.lineno for stmt in statements if hasattr(stmt, "lineno")),
-                end=max(
-                    stmt.end_lineno
-                    for stmt in statements
-                    if hasattr(stmt, "end_lineno")
-                ),
+                start=min(item.lineno for item in nodes_with_span),
+                end=max(item.end_lineno for item in nodes_with_span),
             )
             if span_within_ignored(list_span, ignored_spans):
                 continue
             add_sequences_from_list(
-                value, min_lines, path, by_hash, cache, nonblank_prefix
+                value,
+                min_lines,
+                path,
+                by_hash,
+                cache,
+                nonblank_prefix,
+                node_types=node_types,
+                excluded_node_types=excluded_node_types,
+                label=label,
             )
     return by_hash
 
@@ -597,12 +608,15 @@ def add_sequences_from_list(
     by_hash: Dict[str, List[Occurrence]],
     cache: Dict[int, NodeInfo],
     nonblank_prefix: List[int],
+    node_types: tuple[type[ast.AST], ...],
+    excluded_node_types: set[str],
+    label: str,
 ) -> None:
     nodes: List[NodeInfo] = []
     for value in values:
-        if isinstance(value, ast.stmt):
+        if isinstance(value, node_types):
             info = cache.get(id(value))
-            if info is not None and info.node_type not in {"Import", "ImportFrom"}:
+            if info is not None and info.node_type not in excluded_node_types:
                 nodes.append(info)
 
     count = len(nodes)
@@ -619,28 +633,13 @@ def add_sequences_from_list(
             break
 
         hasher = hashlib.sha256()
-        mapping: Dict[str, str] = {}
-        next_id = 1
-        free_tokens: set[str] = set()
+        token_masks: Dict[str, int] = {}
         for end_index in range(start_index, count):
-            free_tokens.update(nodes[end_index].free_tokens)
-            for token in nodes[end_index].name_tokens:
-                if token in free_tokens:
-                    continue
-                if token not in mapping:
-                    mapping[token] = f"v{next_id}"
-                    next_id += 1
-
-            def repl(match: re.Match[str]) -> str:
-                name = match.group("name")
-                if name in free_tokens:
-                    return f"'{name}'"
-                mapped = mapping.get(name, name)
-                return f"'{mapped}'"
-
-            mapped_dump = VARNAME_RE.sub(repl, nodes[end_index].dump)
-            hasher.update(mapped_dump.encode("utf-8"))
+            hasher.update(nodes[end_index].hash_value.encode("utf-8"))
             hasher.update(b"\n")
+            bit = 1 << (end_index - start_index)
+            for token in nodes[end_index].var_tokens:
+                token_masks[token] = token_masks.get(token, 0) | bit
             if end_index == start_index:
                 continue
             end_span = nodes[end_index].span
@@ -648,7 +647,18 @@ def add_sequences_from_list(
             line_count = count_nonblank(nonblank_prefix, lineno, end_span.end)
             if line_count < min_lines:
                 continue
-            h = hasher.hexdigest()
+            linkage_masks = [
+                mask for mask in token_masks.values() if mask.bit_count() >= 2
+            ]
+            linkage_hasher = hashlib.sha256()
+            for mask in sorted(linkage_masks):
+                linkage_hasher.update(str(mask).encode("utf-8"))
+                linkage_hasher.update(b"\n")
+            sequence_hasher = hashlib.sha256()
+            sequence_hasher.update(hasher.digest())
+            sequence_hasher.update(b"\n")
+            sequence_hasher.update(linkage_hasher.digest())
+            h = sequence_hasher.hexdigest()
             add_occurrence(
                 by_hash,
                 h,
@@ -657,13 +667,13 @@ def add_sequences_from_list(
                     lineno=lineno,
                     end_lineno=end_span.end,
                     line_count=line_count,
-                    node_type=f"StmtSequence[{end_index - start_index + 1}]",
+                    node_type=f"{label}[{end_index - start_index + 1}]",
                 ),
             )
 
 
-SEQUENCE_FIELDS = {"body", "orelse", "finalbody"}
-SEQUENCE_PARENT_TYPES = (
+STMT_SEQUENCE_FIELDS = {"body", "orelse", "finalbody"}
+STMT_SEQUENCE_PARENT_TYPES = (
     ast.FunctionDef,
     ast.AsyncFunctionDef,
     ast.For,
@@ -678,11 +688,27 @@ SEQUENCE_PARENT_TYPES = (
     ast.match_case,
 )
 
+EXPR_SEQUENCE_FIELDS = {"args", "elts"}
+EXPR_SEQUENCE_PARENT_TYPES = (
+    ast.Call,
+    ast.Tuple,
+    ast.List,
+    ast.Set,
+)
 
-def is_sequence_parent(node: ast.AST, field_name: str) -> bool:
-    if field_name not in SEQUENCE_FIELDS:
-        return False
-    return isinstance(node, SEQUENCE_PARENT_TYPES)
+
+def sequence_config(
+    node: ast.AST, field_name: str
+) -> tuple[tuple[type[ast.AST], ...], set[str], str] | None:
+    if field_name in STMT_SEQUENCE_FIELDS and isinstance(
+        node, STMT_SEQUENCE_PARENT_TYPES
+    ):
+        return (ast.stmt,), {"Import", "ImportFrom"}, "StmtSequence"
+    if field_name in EXPR_SEQUENCE_FIELDS and isinstance(
+        node, EXPR_SEQUENCE_PARENT_TYPES
+    ):
+        return (ast.expr,), set(), "ExprSequence"
+    return None
 
 
 def select_non_overlapping_occurrences(
