@@ -6,10 +6,11 @@ import typer
 from lesspython.core import scan_folder
 from lesspython.report import format_yaml_report
 
-app = typer.Typer(add_completion=False)
+
+app = typer.Typer()
 
 
-@app.callback(invoke_without_command=True)
+@app.command()
 def main(
     folder: Path = typer.Argument(
         ..., exists=True, file_okay=False, dir_okay=True
@@ -46,3 +47,4 @@ def main(
 
 if __name__ == "__main__":
     app()
+
