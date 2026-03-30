@@ -27,8 +27,7 @@ def format_yaml_report(report: ScanReport) -> str:
                 "occurrences": len(group.occurrences),
                 "fragments": [
                     {
-                        "path": str(occ.path),
-                        "start": occ.lineno,
+                        "path": f"{occ.path.resolve().as_uri()}:{occ.lineno}",
                         "line_count": occ.line_count,
                     }
                     for occ in group.occurrences
