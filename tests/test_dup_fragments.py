@@ -272,6 +272,11 @@ class TestDupFragments(unittest.TestCase):
         result = run_scan(folder, min_lines=3)
         self.assertEqual(result.groups_count, 0)
 
+    def test_global_conditional_duplicates_detected(self) -> None:
+        folder = ROOT / "examples" / "global_conditional"
+        result = run_scan(folder, min_lines=4)
+        self.assertGreater(result.groups_count, 0)
+
     def test_imports_ignored(self) -> None:
         folder = ROOT / "examples" / "imports"
         result = run_scan(folder, min_lines=2)
